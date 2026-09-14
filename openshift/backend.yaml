@@ -89,6 +89,25 @@ spec:
           env:
             - name: PORT
               value: "4000"
+            - name: PGHOST
+              value: footprint-postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: footprint-postgres-credentials
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: footprint-postgres-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: footprint-postgres-credentials
+                  key: POSTGRES_PASSWORD
           volumeMounts:
             - name: uploads
               mountPath: /app/uploads

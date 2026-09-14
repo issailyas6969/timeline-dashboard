@@ -1,0 +1,100 @@
+# --- Credentials for Postgres. Change these values before applying,
+# or generate random ones the same way we did for the webhook secrets. ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: footprint-postgres-credentials
+type: Opaque
+stringData:
+  POSTGRES_USER: footprint
+  POSTGRES_PASSWORD: CHANGE-ME-BEFORE-APPLYING
+  POSTGRES_DB: footprint
+
+---
+# --- Disk for the actual database files, survives pod restarts ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: footprint-postgres-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: footprint-postgres
+  labels:
+    app: footprint-postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # avoids two Postgres pods ever trying to mount the same disk at once
+  selector:
+    matchLabels:
+      app: footprint-postgres
+  template:
+    metadata:
+      labels:
+        app: footprint-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: registry.redhat.io/rhel9/postgresql-16:latest
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: footprint-postgres-credentials
+          env:
+            # This image (like most OpenShift-friendly Postgres images) stores
+            # data under /var/lib/pgsql/data by default and handles arbitrary
+            # UIDs correctly out of the box — no chgrp/chmod dance needed here.
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: footprint-postgres-credentials
+                  key: POSTGRES_DB
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: footprint-postgres-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: footprint-postgres-credentials
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/pgsql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: footprint-postgres-data
+
+---
+# Internal-only Service — no Route, since neither your backend nor pgAdmin
+# need to reach this over the public internet. Your backend talks to it via
+# this Service's DNS name; pgAdmin reaches it via `oc port-forward` instead.
+apiVersion: v1
+kind: Service
+metadata:
+  name: footprint-postgres
+spec:
+  selector:
+    app: footprint-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
