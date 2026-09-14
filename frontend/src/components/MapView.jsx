@@ -2,7 +2,7 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 
 const CATEGORY_COLORS = {
-  Home: "#7c9fd9",
+  Home: "#c98fd9",
   Work: "#7c9fd9",
   "Food & Drink": "#d9a441",
   Fitness: "#e08585",
