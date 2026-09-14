@@ -5,7 +5,7 @@ const CATEGORY_COLORS = {
   Home: "#c98fd9",
   Work: "#7c9fd9",
   "Food & Drink": "#d9a441",
-  Fitness: "#e08585",
+  Fitness: "#8fd9a8",
   Shopping: "#c98fd9",
   Health: "#8fd9a8",
   Travel: "#d9c541",
