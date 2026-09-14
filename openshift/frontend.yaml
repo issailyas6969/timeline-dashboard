@@ -1,0 +1,103 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: footprint-frontend
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: footprint-frontend-webhook-secret
+type: Opaque
+stringData:
+  WebHookSecretKey: CHANGE-ME-TO-A-DIFFERENT-RANDOM-STRING
+
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: footprint-frontend
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/issailyas6969/timeline-dashboard.git
+      ref: main
+    contextDir: frontend
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: footprint-frontend:latest
+  triggers:
+    - type: GitHub
+      github:
+        secretReference:
+          name: footprint-frontend-webhook-secret
+    - type: ConfigChange
+    - type: ImageChange
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: footprint-frontend
+  labels:
+    app: footprint-frontend
+  annotations:
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"footprint-frontend:latest"},
+        "fieldPath":"spec.template.spec.containers[?(@.name==\"footprint-frontend\")].image"}]
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: footprint-frontend
+  template:
+    metadata:
+      labels:
+        app: footprint-frontend
+    spec:
+      containers:
+        - name: footprint-frontend
+          image: footprint-frontend:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: footprint-frontend
+spec:
+  selector:
+    app: footprint-frontend
+  ports:
+    - port: 8080
+      targetPort: 8080
+
+---
+# This Route is your public URL — the one you actually visit in a browser.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: footprint-frontend
+spec:
+  to:
+    kind: Service
+    name: footprint-frontend
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

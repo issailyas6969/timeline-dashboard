@@ -1,0 +1,5 @@
+node_modules/
+backend/data/dataset.json
+backend/uploads/
+dist/
+.env

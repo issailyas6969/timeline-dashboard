@@ -1,0 +1,134 @@
+# --- Tracks built images for the backend ---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: footprint-backend
+
+---
+# --- Secret used to validate the incoming GitHub webhook call ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: footprint-backend-webhook-secret
+type: Opaque
+stringData:
+  WebHookSecretKey: CHANGE-ME-TO-A-RANDOM-STRING
+
+---
+# --- Builds the backend image from GitHub on every push (via webhook) ---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: footprint-backend
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/issailyas6969/timeline-dashboard.git
+      ref: main
+    contextDir: backend
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: footprint-backend:latest
+  triggers:
+    - type: GitHub
+      github:
+        secretReference:
+          name: footprint-backend-webhook-secret
+    - type: ConfigChange
+    - type: ImageChange
+
+---
+# --- Persistent disk for the dataset + uploaded photos, survives pod restarts ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: footprint-uploads
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: footprint-backend
+  labels:
+    app: footprint-backend
+  annotations:
+    # Makes the Deployment auto-redeploy whenever the ImageStream tag
+    # below gets a new image pushed to it by the BuildConfig.
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"footprint-backend:latest"},
+        "fieldPath":"spec.template.spec.containers[?(@.name==\"footprint-backend\")].image"}]
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: footprint-backend
+  template:
+    metadata:
+      labels:
+        app: footprint-backend
+    spec:
+      containers:
+        - name: footprint-backend
+          # Placeholder image; the annotation above swaps this for the
+          # real built image automatically after the first successful build.
+          image: footprint-backend:latest
+          ports:
+            - containerPort: 4000
+          env:
+            - name: PORT
+              value: "4000"
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: footprint-uploads
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: footprint-backend
+spec:
+  selector:
+    app: footprint-backend
+  ports:
+    - port: 4000
+      targetPort: 4000
+
+---
+# Optional: exposes the backend directly too, handy for testing the API
+# with curl. Not required once the frontend nginx is proxying /api for you.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: footprint-backend
+spec:
+  to:
+    kind: Service
+    name: footprint-backend
+  port:
+    targetPort: 4000
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
