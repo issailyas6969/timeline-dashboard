@@ -1,0 +1,62 @@
+# docker-compose.yml — Footprint on a single EC2 box.
+# Place at the ROOT of the repo (next to backend/ and frontend/).
+#
+# The backend service is deliberately named "footprint-backend": your
+# frontend/nginx.conf already proxies /api and /uploads to that hostname
+# (it was the OpenShift Service name), so nginx.conf needs NO changes.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: footprint
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: footprint
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U footprint -d footprint"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    # No "ports:" on purpose — Postgres is reachable only from other
+    # containers on this compose network, never from the internet.
+
+  footprint-backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      PORT: "4000"
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: footprint
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: footprint
+      # Chatbot (optional — leave blank in .env to disable)
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+    volumes:
+      # Named volume (not a bind mount): the image already created
+      # /app/uploads with the right group permissions for the non-root
+      # user, and a named volume inherits that.
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      # Host port 80 -> the port nginx listens on inside the container.
+      # Your frontend ran non-root on OpenShift, so it most likely listens
+      # on 8080. Verify with:  grep -n "listen\|EXPOSE" frontend/nginx.conf frontend/Dockerfile
+      # and change the right-hand number below if it says something else.
+      - "80:8080"
+    depends_on:
+      - footprint-backend
+
+volumes:
+  pgdata:
+  uploads:
