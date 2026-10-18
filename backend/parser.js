@@ -18,10 +18,18 @@
 
 function parseLatLng(str) {
   // "12.9716123, 77.5946123" -> { lat, lng }
+  // Also accepts "12.97°, 77.59°" (Android) and "geo:12.97,77.59" (iOS).
   if (!str || typeof str !== "string") return null;
-  const [lat, lng] = str.split(",").map((s) => parseFloat(s.trim()));
+  const cleaned = str.replace(/^\s*geo:/i, "").replace(/°/g, "");
+  const [lat, lng] = cleaned.split(",").map((s) => parseFloat(s.trim()));
   if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
   return { lat, lng };
+}
+
+// A location can be a plain string ("geo:..") or an object { latLng: ".." }.
+function latLngOf(loc) {
+  if (!loc) return null;
+  return parseLatLng(typeof loc === "string" ? loc : loc.latLng);
 }
 
 function e7ToDecimal(value) {
@@ -44,13 +52,13 @@ function parseNewFormat(data) {
     if (seg.visit) {
       const v = seg.visit;
       const top = v.topCandidate || {};
-      const coords = parseLatLng(top.placeLocation?.latLng);
+      const coords = latLngOf(top.placeLocation);
       if (!coords) continue;
       visits.push({
         name: top.placeName || top.semanticType || "Unnamed place",
         lat: coords.lat,
         lng: coords.lng,
-        placeId: top.placeId || null,
+        placeId: top.placeId || top.placeID || null,
         semanticType: top.semanticType || null,
         startTime: seg.startTime,
         endTime: seg.endTime,
@@ -58,8 +66,8 @@ function parseNewFormat(data) {
       });
     } else if (seg.activity) {
       const a = seg.activity;
-      const start = parseLatLng(a.start?.latLng);
-      const end = parseLatLng(a.end?.latLng);
+      const start = latLngOf(a.start);
+      const end = latLngOf(a.end);
       segments.push({
         startLat: start?.lat ?? null,
         startLng: start?.lng ?? null,
@@ -123,16 +131,31 @@ function parseOldFormat(data) {
 }
 
 export function parseTimeline(rawJson) {
-  const data = typeof rawJson === "string" ? JSON.parse(rawJson) : rawJson;
+  // Strip a UTF-8 BOM if the export has one (JSON.parse chokes on it).
+  let data =
+    typeof rawJson === "string"
+      ? JSON.parse(rawJson.replace(/^﻿/, ""))
+      : rawJson;
 
-  if (Array.isArray(data.semanticSegments)) {
+  // iOS on-device export: a bare top-level array of segments
+  // [ { startTime, endTime, visit|activity|timelinePath }, ... ]
+  if (Array.isArray(data)) {
+    data = { semanticSegments: data };
+  }
+
+  if (Array.isArray(data?.semanticSegments)) {
     return { format: "on-device", ...parseNewFormat(data) };
   }
-  if (Array.isArray(data.timelineObjects)) {
+  if (Array.isArray(data?.timelineObjects)) {
     return { format: "takeout", ...parseOldFormat(data) };
   }
 
+  const found =
+    data && typeof data === "object"
+      ? Object.keys(data).slice(0, 10).join(", ") || "(empty object)"
+      : typeof data;
+
   throw new Error(
-    "Unrecognized Timeline.json format — expected 'semanticSegments' (new on-device export) or 'timelineObjects' (old Takeout export)."
+    `Unrecognized Timeline.json format. Expected a top-level 'semanticSegments' or 'timelineObjects' list (or a bare list of segments), but found: ${found}.`
   );
 }
